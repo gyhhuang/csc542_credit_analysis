@@ -1,0 +1,493 @@
+---
+title: "CSCProjectModels"
+author: "Gabe Huang"
+date: "2024-03-25"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+
+data <- read_csv("Datasets/credit_score.csv")
+
+data <- data %>%
+  select(!CUST_ID)%>%
+  select(!CAT_GAMBLING)
+data = cbind(scale(data[,1:84]), data[,85])
+
+```
+
+### Classification
+
+```{r}
+
+library(broom)
+
+```
+
+
+```{r}
+
+## don't use credit score column
+classification_data <- data %>%
+  select(!CREDIT_SCORE)
+
+```
+
+```{r}
+
+### find the number of rows in classification_data
+nRow <- nrow(classification_data)
+
+eightyPercent <- floor(0.8 * nRow)
+
+### get indices for the training data set
+trainIndices <- sample((1:nRow), size = eightyPercent)
+
+### create training data set using indeces
+train <- classification_data[trainIndices, ]
+test <- classification_data[-trainIndices, ]
+
+```
+
+
+```{r}
+
+### Logistic Regression
+glm.fits <- glm(DEFAULT ~ ., data = train, family = binomial)
+
+glm.probs = predict(glm.fits, newdata = test, type = "response")
+
+glm.pred = rep(0, nrow(test))
+
+glm.pred[glm.probs > 0.5] = 1
+
+
+### confusion matrix
+glm.matrix = table(Predicted = glm.pred, Actual = test$DEFAULT)
+glm.matrix
+
+### test error
+logisticRegressionError <- mean(glm.pred != test$DEFAULT)
+
+logisticRegressionError
+
+
+```
+```{r}
+### Classification Metrics
+logisticRegressionAcc = (glm.matrix[1,1] + glm.matrix[2,2]) / nrow(test)
+logisticRegressionPrecision = glm.matrix[1,1] / (glm.matrix[1,1] + glm.matrix[2,1])
+logisticRegressionRecall = glm.matrix[1,1] / (glm.matrix[1,1] + glm.matrix[1,2])
+logisticRegressionF1 = 2 * ((logisticRegressionPrecision * logisticRegressionRecall)/(logisticRegressionPrecision + logisticRegressionRecall))
+
+logisticRegressionAcc
+logisticRegressionPrecision
+logisticRegressionRecall
+logisticRegressionF1
+```
+
+```{r}
+# Start with an intercept-only model
+start.model <- glm(DEFAULT ~ 1, data = train, family = binomial)
+
+# Forward stepwise selection with minimal output
+forward.model <- step(start.model, direction = "forward", scope = list(lower = start.model, upper = glm(DEFAULT ~ ., data = train, family = binomial)), trace = 0)
+
+# Use the selected model to predict
+forward.probs <- predict(forward.model, newdata = test, type = "response")
+forward.pred <- ifelse(forward.probs > 0.5, 1, 0)
+
+# Confusion matrix and error
+forward.matrix = table(Predicted = forward.pred, Actual = test$DEFAULT)
+forward.matrix
+forward.error <- mean(forward.pred != test$DEFAULT)
+forward.error
+
+```
+
+```{r}
+### Classification Metrics
+forwardAcc = (forward.matrix[1,1] + forward.matrix[2,2]) / nrow(test)
+forwardPrecision = forward.matrix[1,1] / (forward.matrix[1,1] + forward.matrix[2,1])
+forwardRecall = forward.matrix[1,1] / (forward.matrix[1,1] + forward.matrix[1,2])
+forwardF1 = 2 * ((forwardPrecision * forwardRecall)/(forwardPrecision + forwardRecall))
+
+forwardAcc
+forwardPrecision
+forwardRecall
+forwardF1
+```
+
+
+```{r}
+
+# Full model
+full.model <- glm(DEFAULT ~ ., data = train, family = binomial)
+
+# Backward stepwise selection with minimal output
+backward.model <- step(full.model, direction = "backward", trace = 0)
+
+# Use the selected model to predict
+backward.probs <- predict(backward.model, newdata = test, type = "response")
+backward.pred <- ifelse(backward.probs > 0.5, 1, 0)
+
+# Confusion matrix and error
+backward.matrix = table(Predicted = backward.pred, Actual = test$DEFAULT)
+backward.matrix
+backward.error <- mean(backward.pred != test$DEFAULT)
+backward.error
+
+```
+
+```{r}
+### Classification Metrics
+backwardAcc = (backward.matrix[1,1] + backward.matrix[2,2]) / nrow(test)
+backwardPrecision = backward.matrix[1,1] / (backward.matrix[1,1] + backward.matrix[2,1])
+backwardRecall = backward.matrix[1,1] / (backward.matrix[1,1] + backward.matrix[1,2])
+backwardF1 = 2 * ((backwardPrecision * backwardRecall)/(backwardPrecision + backwardRecall))
+
+backwardAcc
+backwardPrecision
+backwardRecall
+backwardF1
+```
+
+
+```{r}
+library(glmnet)
+
+# Prepare matrix and response vector
+x <- as.matrix(train[, -which(names(train) == "DEFAULT")])
+y <- train$DEFAULT
+
+# Train the Lasso model
+lasso_model <- glmnet(x, y, family = "binomial", alpha = 1)
+
+# Cross-validate to find the optimal lambda
+cv_fit <- cv.glmnet(x, y, family = "binomial", alpha = 1)
+
+# Predict and evaluate
+test_matrix <- as.matrix(test[, -which(names(test) == "DEFAULT")])
+probs <- predict(lasso_model, newx = test_matrix, type = "response", s = cv_fit$lambda.min)
+
+# Convert probabilities to binary predictions
+predictions <- ifelse(probs > 0.5, 1, 0)
+
+# Generate confusion matrix
+conf_matrix <- table(Predicted = predictions, Actual = test$DEFAULT)
+conf_matrix
+
+### test error
+lassoedLogisticRegressionError <- mean(predictions != test$DEFAULT)
+
+lassoedLogisticRegressionError
+
+
+```
+
+```{r}
+### Classification Metrics
+lassoAcc = (conf_matrix[1,1] + conf_matrix[2,2]) / nrow(test)
+lassoPrecision = conf_matrix[1,1] / (conf_matrix[1,1] + conf_matrix[2,1])
+lassoRecall = conf_matrix[1,1] / (conf_matrix[1,1] + conf_matrix[1,2])
+lassoF1 = 2 * ((lassoPrecision * lassoRecall)/(lassoPrecision + lassoRecall))
+
+lassoAcc
+lassoPrecision
+lassoRecall
+lassoF1
+```
+
+
+```{r}
+### K-Nearest Neighbors
+
+library(class)
+
+K1 <- sqrt(nrow(train))
+K2 <- K1 / 2
+k_values <- 1:10
+
+trainData <- train %>%
+  select(-DEFAULT)
+
+testData <- test %>%
+  select(-DEFAULT)
+trainLabels <- train$DEFAULT
+testLabels <- test$DEFAULT
+
+knn.pred <- knn(trainData, testData, trainLabels, k=7)
+
+
+knn.matrix = table(Predicted = knn.pred, Actual = testLabels)
+knn.matrix
+
+
+KNNError <- mean(knn.pred != testLabels)
+print(KNNError)
+
+
+
+```
+
+```{r}
+### Classification Metrics
+knnAcc = (knn.matrix[1,1] + knn.matrix[2,2]) / nrow(test)
+knnPrecision = knn.matrix[1,1] / (knn.matrix[1,1] + knn.matrix[2,1])
+knnRecall = knn.matrix[1,1] / (knn.matrix[1,1] + knn.matrix[1,2])
+knnF1 = 2 * ((knnPrecision * knnRecall)/(knnPrecision + knnRecall))
+
+knnAcc
+knnPrecision
+knnRecall
+knnF1
+```
+
+
+```{r}
+
+### Decision Trees
+
+library(tree)
+
+train$DEFAULT <- as.factor(train$DEFAULT)
+test$DEFAULT <- as.factor(test$DEFAULT)
+
+tree_model <- tree(DEFAULT ~ ., data = train)
+
+tree_predictions <- predict(tree_model, newdata = test, type = "class")
+
+tree_matrix <- table(Predicted = tree_predictions, Actual = test$DEFAULT)
+
+tree_matrix
+
+
+DecisionTreeError <- mean(tree_predictions != test$DEFAULT)
+DecisionTreeError
+```
+
+```{r}
+### Classification Metrics
+treeAcc = (tree_matrix[1,1] + tree_matrix[2,2]) / nrow(test)
+treePrecision = tree_matrix[1,1] / (tree_matrix[1,1] + tree_matrix[2,1])
+treeRecall = tree_matrix[1,1] / (tree_matrix[1,1] + tree_matrix[1,2])
+treeF1 = 2 * ((treePrecision * treeRecall)/(treePrecision + treeRecall))
+
+treeAcc
+treePrecision
+treeRecall
+treeF1
+```
+
+
+```{r}
+
+library(randomForest)
+
+rf.model <- randomForest(DEFAULT ~ ., data = train, ntree = 500)
+
+rf.pred <- predict(rf.model, newdata = test)
+
+rf.confusionMatrix <- table(Predicted = rf.pred, Actual = test$DEFAULT)
+
+rf.confusionMatrix
+
+rf.testError <- mean(rf.pred != test$DEFAULT)
+rf.testError
+
+
+```
+
+```{r}
+rfAcc = (rf.confusionMatrix[1,1] + rf.confusionMatrix[2,2]) / nrow(test)
+rfPrecision = rf.confusionMatrix[1,1] / (rf.confusionMatrix[1,1] + rf.confusionMatrix[2,1])
+rfRecall = rf.confusionMatrix[1,1] / (rf.confusionMatrix[1,1] + rf.confusionMatrix[1,2])
+rfF1 = 2 * ((rfPrecision * rfRecall)/(rfPrecision + rfRecall))
+
+rfAcc
+rfPrecision
+rfRecall
+rfF1
+```
+
+
+```{r}
+
+logisticRegressionError
+KNNError
+DecisionTreeError
+rf.testError
+lassoedLogisticRegressionError
+forward.error
+backward.error
+
+```
+
+### Regression
+
+```{r}
+
+## don't use credit score column
+regression_data <- data %>%
+  select(!DEFAULT)
+
+
+
+### find the number of rows in classification_data
+nRow <- nrow(regression_data)
+
+eightyPercent <- floor(0.8 * nRow)
+
+### get indices for the training data set
+trainIndices <- sample((1:nRow), size = eightyPercent)
+
+### create training data set using indeces
+train <- regression_data[trainIndices, ]
+test <- regression_data[-trainIndices, ]
+```
+
+
+```{r}
+
+### Multi-Regression
+
+lm.fit = lm(CREDIT_SCORE ~ ., data = train)
+
+predictions = predict(lm.fit, newdata = train)
+
+MultiMSE = mean((train$CREDIT_SCORE - predictions)^2)
+MultiRSquared <- summary(lm.fit)$r.squared
+
+MultiMSE
+MultiRSquared
+
+
+```
+
+```{r}
+library(glmnet)
+
+# Prepare data
+x <- as.matrix(train[,-which(names(train) == "CREDIT_SCORE")])
+y <- train$CREDIT_SCORE
+
+# Fit Lasso model
+lasso_model <- glmnet(x, y, alpha = 1)  # alpha = 1 for Lasso
+
+# Cross-validation for lambda selection
+cv_model <- cv.glmnet(x, y, alpha = 1)
+plot(cv_model)
+
+# Make predictions using the lambda that minimizes cross-validation error
+lasso_predictions <- predict(lasso_model, s = cv_model$lambda.min, newx = as.matrix(test[,-which(names(test) == "CREDIT_SCORE")]))
+
+# Calculate MSE
+lasso_MSE <- mean((test$CREDIT_SCORE - lasso_predictions)^2)
+lasso_MSE
+
+lasso.coef=predict(lasso_model,type="coefficients",s=cv_model$lambda.min)
+
+
+```
+
+```{r}
+lasso.coef
+```
+
+```{r}
+# Forward stepwise selection with truncated output
+forward_model <- step(lm(CREDIT_SCORE ~ 1, data = train), direction = "forward",
+                      scope = formula(lm.fit), trace = 0)
+
+# Make predictions using the forward stepwise model
+forward_predictions <- predict(forward_model, newdata = test)
+forward_MSE <- mean((test$CREDIT_SCORE - forward_predictions)^2)
+
+# Print the MSE for the forward model
+cat("Forward Model MSE:", forward_MSE, "\n")
+
+# Backward stepwise selection with truncated output
+backward_model <- step(lm.fit, direction = "backward", trace = 0)
+
+# Make predictions using the backward stepwise model
+backward_predictions <- predict(backward_model, newdata = test)
+backward_MSE <- mean((test$CREDIT_SCORE - backward_predictions)^2)
+
+# Print the MSE for the backward model
+cat("Backward Model MSE:", backward_MSE, "\n")
+
+
+```
+
+```{r}
+library(leaps)
+regfit.best=regsubsets(CREDIT_SCORE~.,data=train,nvmax=20, really.big = TRUE)
+```
+
+
+
+```{r}
+
+### Bagging
+
+library(randomForest)
+
+bagging_model <- randomForest(CREDIT_SCORE ~ ., data = train, mtry = ncol(train) - 1, importance = TRUE)
+
+bagging_predictions <- predict(bagging_model, newdata = test)
+
+baggingMSE <- mean((bagging_predictions - test$CREDIT_SCORE)^2)
+
+baggingMSE
+
+```
+
+
+```{r}
+### Random Forests
+
+randomForest_model <- randomForest(CREDIT_SCORE ~ ., data = train, mtry = floor(sqrt(ncol(train) - 1)), importance = TRUE)
+
+randomForest_predictions <- predict(randomForest_model, newdata = test)
+
+randomForest_MSE <- mean((randomForest_predictions - test$CREDIT_SCORE)^2)
+
+randomForest_MSE
+```
+
+
+```{r}
+
+### Boosting
+
+library(gbm)
+
+boosting_model <- gbm(CREDIT_SCORE ~ ., data = train, distribution = "gaussian", n.trees = 5000, interaction.depth = 4, shrinkage = 0.01)
+
+boosting_predictions <- predict(boosting_model, newdata = test, n.trees = 5000)
+
+boosting_MSE <- mean((boosting_predictions - test$CREDIT_SCORE)^2)
+
+boosting_MSE
+
+```
+
+```{r}
+
+MultiMSE
+baggingMSE
+randomForest_MSE
+boosting_MSE
+lasso_MSE
+forward_MSE
+backward_MSE
+
+```
+
+
